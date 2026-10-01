@@ -8,7 +8,7 @@ Requires Node 24+ (uses the built-in `node:sqlite`).
 
 ```
 npm install
-npm run dev        # http://localhost:3000, restarts on file changes
+npm run dev        # http://localhost:4000, restarts on file changes
 ```
 
 Data is stored in `data.db` (override with `DB_PATH`).

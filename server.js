@@ -10,6 +10,8 @@ const METHODS = { dns };
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
+// express.static skips dot-folders by default, so serve /.well-known explicitly.
+app.use('/.well-known', express.static('public/.well-known'));
 
 // Attach the "what to add" instructions to a DB row before sending it to the browser.
 function present(row) {
@@ -57,5 +59,5 @@ app.delete('/api/verifications/:id', (req, res) => {
   res.status(204).end();
 });
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`Listening on http://localhost:${port}`));
