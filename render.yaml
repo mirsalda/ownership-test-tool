@@ -1,0 +1,9 @@
+# Render Blueprint: New > Blueprint > pick this repo.
+# Free plan: no persistent disk, so data.db is wiped on restart/redeploy (fine for testing).
+services:
+  - type: web
+    name: ownership-test-tool
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ownership Test Tool</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #667085; --border: #dde1e7;
+      --accent: #2f6fed; --ok: #138a4b; --warn: #b26b00; --bad: #c4321c; --code: #f0f2f5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12151b; --card: #1b1f27; --text: #e6e8ec; --muted: #9aa3b2; --border: #2c323d;
+        --accent: #6b9bff; --ok: #3ccf7f; --warn: #f0a83a; --bad: #ff6b55; --code: #232833;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .muted { color: var(--muted); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 16px; }
+    form { display: flex; gap: 8px; flex-wrap: wrap; }
+    input, select, button { font: inherit; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+    input { flex: 1 1 220px; }
+    button { cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .error { color: var(--bad); margin-top: 8px; }
+    .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; }
+    .s-verified { color: var(--ok); } .s-not_found { color: var(--warn); } .s-error { color: var(--bad); } .s-pending { color: var(--muted); }
+    .field { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: start; margin: 6px 0; }
+    code { background: var(--code); padding: 6px 8px; border-radius: 6px; word-break: break-all; font-size: 13px; display: block; white-space: pre-wrap; }
+    .result { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--code); }
+    .actions { display: flex; gap: 8px; margin-top: 12px; }
+    @media (max-width: 520px) { .field { grid-template-columns: 1fr auto; } .field > span { grid-column: 1 / -1; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Domain ownership test tool</h1>
+  <div class="muted">Get a token, add it to your domain, then click “Check now”. The server runs the real lookup.</div>
+
+  <div class="card">
+    <form id="new">
+      <input id="domain" placeholder="example.com" required autocomplete="off">
+      <select id="method"></select>
+      <button class="primary">Generate token</button>
+    </form>
+    <div id="formError" class="error" hidden></div>
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<script>
+  // Small helper: el('div', {class: 'x'}, child1, 'text', ...)
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v);
+    }
+    node.append(...children.filter((c) => c != null));
+    return node;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+    if (res.status === 204) return null;
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  }
+
+  const STATUS_TEXT = { pending: 'Not checked yet', verified: 'Verified', not_found: 'Not found', error: 'Error' };
+
+  function renderCard(v) {
+    const fields = v.instructions.fields.map((f) =>
+      el('div', { class: 'field' },
+        el('span', { class: 'muted' }, f.label),
+        el('div', {}, el('code', {}, f.value), f.note ? el('small', { class: 'muted' }, f.note) : null),
+        el('button', { type: 'button', onclick: (e) => copy(f.value, e.target) }, 'Copy'),
+      ));
+
+    const checkBtn = el('button', { class: 'primary', type: 'button' }, 'Check now');
+    checkBtn.onclick = async () => {
+      checkBtn.disabled = true; checkBtn.textContent = 'Checking…';
+      try { card.replaceWith(renderCard(await api(`/api/verifications/${v.id}/check`, { method: 'POST' }))); }
+      catch (err) { alert(err.message); checkBtn.disabled = false; checkBtn.textContent = 'Check now'; }
+    };
+    const deleteBtn = el('button', { type: 'button', onclick: async () => {
+      await api(`/api/verifications/${v.id}`, { method: 'DELETE' });
+      card.remove();
+    } }, 'Delete');
+
+    const card = el('div', { class: 'card' },
+      el('div', { class: 'head' },
+        el('div', {}, el('strong', {}, v.domain), ' · ', el('span', { class: 'muted' }, v.methodLabel)),
+        el('span', { class: `badge s-${v.status}` }, STATUS_TEXT[v.status] || v.status),
+      ),
+      el('p', {}, v.instructions.summary),
+      ...fields,
+      v.checked_at ? el('div', { class: 'result' },
+        el('strong', { class: `s-${v.status}` }, STATUS_TEXT[v.status] + ': '), v.reason,
+        el('div', { class: 'muted' }, el('small', {}, `Last checked ${v.checked_at} UTC`)),
+      ) : null,
+      el('div', { class: 'actions' }, checkBtn, deleteBtn),
+    );
+    return card;
+  }
+
+  async function copy(text, btn) {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'Copied'; setTimeout(() => (btn.textContent = 'Copy'), 1200);
+  }
+
+  async function load() {
+    const methods = await api('/api/methods');
+    document.getElementById('method').replaceChildren(...methods.map((m) => el('option', { value: m.id }, m.label)));
+    const items = await api('/api/verifications');
+    document.getElementById('list').replaceChildren(...items.map(renderCard));
+  }
+
+  document.getElementById('new').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById('formError');
+    errorBox.hidden = true;
+    try {
+      const v = await api('/api/verifications', {
+        method: 'POST',
+        body: JSON.stringify({
+          domain: document.getElementById('domain').value,
+          method: document.getElementById('method').value,
+        }),
+      });
+      document.getElementById('list').prepend(renderCard(v));
+    } catch (err) {
+      errorBox.textContent = err.message; errorBox.hidden = false;
+    }
+  });
+
+  load();
+</script>
+</body>
+</html>
